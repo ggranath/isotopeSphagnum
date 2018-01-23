@@ -15,23 +15,8 @@ library(ggplot2)
 library(rworldmap)
 library(lattice)
 
-# load data
+# import data
 dat <- read.csv("Granath_etal_gsp_isosphag.csv")
-
-# Fix variables
-# Samples were taken in 2013 and 2014 and ET, temperature and precipitation and HWT
-# are available for both 2013 and 2014 at each site. Thus, sampling year needs to be matched 
-# with environmental data from correct year.
-dat$evap <- dat$evap13
-dat$evap <- ifelse(is.na(dat$iso_13C_2013), dat$evap14, dat$evap13)
-
-dat$avt <- dat$avt13
-dat$avt <- ifelse(is.na(dat$iso_13C_2013), dat$avt14, dat$avt13)
-
-dat$precip <- dat$totprec13
-dat$precip <- ifelse(is.na(dat$iso_13C_2013), dat$totprec14, dat$totprec13)
-
-dat$HWT_end_season <- ifelse(is.na(dat$iso_18O_2013), dat$HWT_end_season_2014, dat$HWT_end_season_2013)
 
 # Calculate ET/P variable
 dat$ep <- dat$evap/dat$precip
@@ -100,7 +85,7 @@ nlevels(factor(paste(dat$Site,dat$Patch_id)))
 
 # Table 1 - Within-between site variation ####
 
-# 13C
+# d13C
 # S.fuscum
 prop.var.fusc.mod <-lmer(iso_13C_all ~ 1 + 
                            (1|Site), dat[dat$Species == "S.fuscum",], na.action = "na.omit")
@@ -119,7 +104,7 @@ VarCorr(prop.var.mag.mod)$Site[1] / (VarCorr(prop.var.mag.mod)$Site[1] + attr(Va
 # within-site
 attr(VarCorr(prop.var.mag.mod), "sc")^2 / (VarCorr(prop.var.mag.mod)$Site[1] + attr(VarCorr(prop.var.mag.mod), "sc")^2) 
 
-# 18O
+# d18O
 # S.fuscum
 prop.var.fusc.mod <-lmer(iso_18O_all ~ 1 + 
                            (1|Site), dat[dat$Species == "S.fuscum",], na.action = "na.omit")
@@ -138,14 +123,7 @@ VarCorr(prop.var.mag.mod)$Site[1] / (VarCorr(prop.var.mag.mod)$Site[1] + attr(Va
 # within-site
 attr(VarCorr(prop.var.mag.mod), "sc")^2 / (VarCorr(prop.var.mag.mod)$Site[1] + attr(VarCorr(prop.var.mag.mod), "sc")^2) 
 
-# 13C analyses ####
-
-# make one NPP (productivity) variable
-dat$prod <- dat$Prod13
-dat$prod <- ifelse(is.na(dat$iso_13C_2013), dat$Prod14, dat$Prod13)
-
-# check if there is a correlation between NPP and HWT
-cor(dat$prod, dat$HWT_end_season, use="complete.obs")
+# d13C analyses ####
 
 # HWT is important for d13C but a few sites do not have HWT measurements and are removed
 dat.sub <- dat[!(is.na(dat$HWT_end_season)),]
@@ -485,12 +463,14 @@ Ctable$Pvalue[18:19] <- round(C8.res$'Pr(>F)', digits = 4)[c(4,6)]
 Ctable$N[18] <- nrow(H2.3.start@frame)
 Ctable[19, c("varExpsite", "varExptotal")] <- varExp
 
-write.csv(Ctable, file = "Ctable.csv")
+write.csv(Ctable, file = "table2_C.csv")
 
 # Figure 2 ####
+# subset with 13C data and HWT
+dat.sub.f2 <- dat[!(is.na(dat$iso_13C_all)) & !(is.na(dat$HWT_end_season)), ]
 # get equations for Fig 2
 fig2.mod <- lmer(iso_13C_all ~ HWT_end_season * Species + 
-                   (HWT_end_season|Site), dat, na.action = "na.omit", REML = TRUE)
+                   (HWT_end_season|Site), dat.sub.f2, na.action = "na.omit", REML = TRUE)
 # S.fuscum
 paste(fixef(fig2.mod)[1]," + ",fixef(fig2.mod)[2])
 # S.magellanicum
@@ -499,15 +479,15 @@ paste((fixef(fig2.mod)[1] + fixef(fig2.mod)[3]), " + ", (fixef(fig2.mod)[2]+fixe
 # check site effect
 rf <- ranef( fig2.mod, condVar = TRUE)
 dotplot(rf)
-dat.sub$pred <- predict(fig2.mod)
+dat.sub.f2$pred <- predict(fig2.mod)
 
 # Plot
-newdat <- rbind(aggregate(HWT_end_season ~ Species, data=dat.sub, FUN = min),
-                aggregate(HWT_end_season ~ Species, data=dat.sub, FUN = max))
+newdat <- rbind(aggregate(HWT_end_season ~ Species, data=dat.sub.f2, FUN = min),
+                aggregate(HWT_end_season ~ Species, data=dat.sub.f2, FUN = max))
 newdat$predMean <- predict(fig2.mod, newdata=newdat, re.form=~0)
-newdat$Site <- dat.sub$Site[1] # hack to avoid ggplot error
+newdat$Site <- dat.sub.f2$Site[1] # hack to avoid ggplot error
 
-fig2 <- ggplot(dat.sub,aes(HWT_end_season, iso_13C_all, group=interaction(Site, Species), 
+fig2 <- ggplot(dat.sub.f2,aes(HWT_end_season, iso_13C_all, group=interaction(Site, Species), 
                            color=Species, shape = Species )) + 
   geom_line(aes(y=pred, color=Species), size=0.8, alpha =0.3) +
   geom_line(data=newdat, aes(y=predMean, x=HWT_end_season, color=Species), alpha =1, size = 1.2) +
@@ -538,12 +518,11 @@ fig2 <- grid.grab() # save edits
 ggsave("fig2_13C.png", fig2,  dpi = 300)
 
 
-# 18O analyses ####
+# d18O analyses ####
 # First we remove the two samples without O isotopes. 
 dat.sub <- dat[!(is.na(dat$iso_18O_all)),]
 
 # The following code will produce Table 3.
-
 # First, Mean annual precip d18O 
 H1.1 <- lmer(iso_18O_all ~ bowen_18O_annual*Species + 
                (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
@@ -665,6 +644,30 @@ Otable$varExptotal[8] <- round(Oexp.species, digits = 3)[[1]]
 
 # Check first part of Table 3
 Otable
+
+# Test with precipitation-weighted modelled d18O
+winter.w.full <- lmer(iso_18O_all ~ bowen_18O_JanApr.w + Species + 
+               (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
+winter.w.red <- lmer(iso_18O_all ~ Species + 
+                        (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
+grow.w.full <- lmer(iso_18O_all ~ bowen_18O_AprSep + Species + 
+                        (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
+grow.w.red <- lmer(iso_18O_all ~ Species + 
+                       (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
+annual.w.full <- lmer(iso_18O_all ~ bowen_18O_annual.w + Species + 
+                         (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
+annual.w.red <- lmer(iso_18O_all ~ Species + 
+                        (1|Site), dat.sub, na.action = "na.omit", REML = TRUE)
+
+# variance explained by precip-weighted
+# modelled d18O explaining between site variation
+Oexp.pred18O.winter <- as.numeric((VarCorr(winter.w.red )$Site-VarCorr(winter.w.full)$Site) / VarCorr(H1.1.null)$Site)
+Oexp.pred18O.grow <- as.numeric((VarCorr(grow.w.red )$Site-VarCorr(grow.w.full)$Site) / VarCorr(H1.1.null)$Site)
+Oexp.pred18O.annual <- as.numeric((VarCorr(annual.w.red )$Site-VarCorr(annual.w.full)$Site) / VarCorr(H1.1.null)$Site)
+
+Oexp.pred18O.tot <- rsquared(H1.1.red1)[5] - rsquared(H1.1.red2)[5]
+
+
 
 # Annual precip d18O is the best predictor and will be used
 # in subsequent models
@@ -824,7 +827,7 @@ Otable$N[16] <- nrow(H1.4.start.tmp@frame)
 Otable[16, c("varExpsite", "varExptotal")] <- varExp
 
 # Save Table 3
-write.csv(Otable, file = "Otable.csv")
+write.csv(Otable, file = "table3_O.csv")
 
 
 # Figure 3 ####
@@ -868,12 +871,20 @@ fig3 <- ggplot(rff, aes(x=bowen_18O_annual, y=RFF, ymin=RFF-2*Var, ymax=RFF+2*Va
   scale_shape_manual(name=c("Species"), breaks = c("fusc", "mag"),values = c(1,2), labels = c("S.fuscum", "S. magellanicum")) +
   theme_bw()+
   theme(legend.justification = c(0, 0), 
-        legend.position = c(0.72, 0.05),
-        #legend.key.size = units(2.5),
+        legend.position = c(0.70, 0.05),
+        legend.key.size = unit(2, "line"),
         legend.text = element_text(size=12, face = "italic"),
-        legend.title = element_text(size=12))
+        legend.title = element_text(size=12)) #+
+  #guides(colour = guide_legend(override.aes = list(size = 2)))
 
 fig3
+# legend line and point size are not equal and here is a hack
+# to fix this
+library(grid)
+grid.ls(grid.force()) # check slots to edit 
+grid.gedit("key-[-0-9]-1-1.4-2-4-2", size = unit(4, "mm"))    
+grid.gedit("key-[-0-9]-1-1.5-2-5-2", size = unit(4, "mm"))    
+fig3 <- grid.grab() # save edits
 ggsave("fig3_18o.png", fig3,  dpi = 300)
 
 
@@ -887,5 +898,10 @@ anova(H1.2)
 plot(H1.2)
 summary(H1.2) # 11 cm lower for S.mag on average (33 cm vs 22 cm)
 detach(package:nlme)
-library(lme4)
 
+# Table S1 -  data overview ####
+dat2 <- unique(dat[,c("Region","Site","Species", "Patch_coord_lat", "Patch_coord_lon", "elevation")])
+reshape(dat2, v.names = "elevation" , timevar = "Species",
+        idvar = c("Region","Site"), 
+        direction = "wide",
+        drop = c("elevation", "Patch_coord_lat", "Patch_coord_lon"))
