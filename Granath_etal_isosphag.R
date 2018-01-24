@@ -900,8 +900,33 @@ summary(H1.2) # 11 cm lower for S.mag on average (33 cm vs 22 cm)
 detach(package:nlme)
 
 # Table S1 -  data overview ####
-dat2 <- unique(dat[,c("Region","Site","Species", "Patch_coord_lat", "Patch_coord_lon", "elevation")])
-reshape(dat2, v.names = "elevation" , timevar = "Species",
-        idvar = c("Region","Site"), 
-        direction = "wide",
-        drop = c("elevation", "Patch_coord_lat", "Patch_coord_lon"))
+range(dat$elevation)
+range(dat$Patch_coord_lat)
+
+tables1 <- aggregate(cbind(Patch_coord_lat, Patch_coord_lon, elevation, samp_year) ~ Region + Site, dat, mean)
+# one site had samples from two years
+tables1$samp_year <- ifelse(tables1$samp_year != 2013 & tables1$samp_year != 2014, "2013 & 2014", tables1$samp_year)
+colnames(tables1) <- c("region", "site", "latitude_wgs84", "longitude_wgs84", "elevation_masl", "sample_year") 
+write.csv(tables1, file="tables1.csv", row.names = FALSE)
+
+# Figure S1 - d18O pred per month ####
+# check variation in pred 18O over the year
+predO <- read.csv("d18O_pred_months.csv")
+predO <- predO[,-c(1:4)] # remove site info and coords
+predO$site <- factor(1:nrow(predO))
+# change to long data format
+predO.long <- reshape(predO, idvar = "site", varying = list(1:12),
+                    v.names = "mod18O", direction = "long")
+predO.long$time <- as.Date(paste("2013",predO.long$time,"01", sep="-"))
+
+# check SD for each months
+apply(predO,2, sd, na.rm=TRUE)
+
+# plot
+preO <- ggplot(predO.long[order(predO.long$site),], aes(y=mod18O, x = time, group=site)) +
+  geom_line() +
+  geom_point() +
+  labs(y = expression(paste("Modelled precipitation ", delta^{18}, "O (\u2030)")),
+       x = "Month") +
+  scale_x_date(date_labels = "%b",date_breaks = "months")
+ggsave(preO, file = "pred18Oseason.png")
