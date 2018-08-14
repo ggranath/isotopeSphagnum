@@ -1,8 +1,9 @@
 #######################################################################################
-# R-script to reproduce results for the manuscript in prep:
+# R-script to reproduce results for the paper:
 # "Environmental and taxonomic controls of carbon and oxygen 
 # stable isotope composition in Sphagnum across broad climatic and geographic ranges"
 #
+# Published in Biogeosciences
 # Granath et al.
 # Contact: gustaf.granath@gmail.com
 #######################################################################################
@@ -74,6 +75,7 @@ worldmap
 
 # save worldmap
 ggsave(filename = "fig1_map.png", worldmap, width = 18, height = 18, units = "cm", dpi = 300)
+ggsave(filename = "fig1_map.eps", worldmap, width = 18, height = 18, units = "cm")
 
 # Sampling summary
 sum(data.frame(table(dat$Site, dat$Species))$Freq == 1) # count sites-species combinations with 1 sample
@@ -302,7 +304,12 @@ dat2 <- dat
 dat2$Species <- relevel(dat2$Species, ref = "S.magellanicum")
 
 # Additional variables were tested by adding them seperately to a "start model" that
-# was considered the "best" model.
+# was considered the "best" model: HWT*Species + NPP.
+# the HWT*NPP term was not included as it was not important
+H2.3.full <- lmer(iso_13C_all ~ HWT_end_season.st*Species + HWT_end_season.st*prod +
+       (1|Site), dat, na.action = "na.omit", REML = TRUE)
+Anova(H2.3.full, type =2, test.statistic = "F") # not important
+# continue with "best" model
 H2.3.start <- lmer(iso_13C_all ~ HWT_end_season.st*Species + prod +
                      (1|Site), dat, na.action = "na.omit", REML = TRUE)
 H2.3.start.no_prod <- update(H2.3.start, .~ . -prod)
@@ -482,18 +489,38 @@ dotplot(rf)
 dat.sub.f2$pred <- predict(fig2.mod)
 
 # Plot
-newdat <- rbind(aggregate(HWT_end_season ~ Species, data=dat.sub.f2, FUN = min),
-                aggregate(HWT_end_season ~ Species, data=dat.sub.f2, FUN = max))
+#newdat <- rbind(aggregate(HWT_end_season ~ Species, data=dat.sub.f2, FUN = min),
+#                aggregate(HWT_end_season ~ Species, data=dat.sub.f2, FUN = max))
+
+#
+mima <- aggregate(HWT_end_season ~ Species, data=dat.sub.f2, function (x) c(min(x),max(x)) )$HWT_end_season
+newdat <- rbind(data.frame(Species = "S.fuscum", HWT_end_season = seq(mima[1, 1],mima[1, 2], 0.25)),
+      data.frame(Species = "S.magellanicum", HWT_end_season = seq(mima[2, 1],mima[2, 2], 0.25)))
 newdat$predMean <- predict(fig2.mod, newdata=newdat, re.form=~0)
+
+mm <- model.matrix(formula('~HWT_end_season * Species'),newdat)
+newdat$distance <- mm %*% fixef(fig2.mod)
+newdat$pvar1 <- diag(mm %*% tcrossprod(vcov(fig2.mod),mm))
+newdat <- data.frame(
+  newdat
+  , plo = newdat$distance-2*sqrt(newdat$pvar1)
+  , phi = newdat$distance+2*sqrt(newdat$pvar1) )
+#
+
+
+#newdat$predMean <- predict(fig2.mod, newdata=newdat, re.form=~0)
 newdat$Site <- dat.sub.f2$Site[1] # hack to avoid ggplot error
 
 fig2 <- ggplot(dat.sub.f2,aes(HWT_end_season, iso_13C_all, group=interaction(Site, Species), 
                            color=Species, shape = Species )) + 
-  geom_line(aes(y=pred, color=Species), size=0.8, alpha =0.3) +
-  geom_line(data=newdat, aes(y=predMean, x=HWT_end_season, color=Species), alpha =1, size = 1.2) +
+  geom_ribbon(data=newdat, aes(y=plo,x=HWT_end_season, ymin = plo, ymax = phi, fill = Species), 
+              alpha = .15, show.legend = FALSE, linetype=0) +
   geom_point(alpha = 1) +
+  #geom_line(aes(y=pred, color=Species), size=0.8, alpha =0.3) + #if plot site-specific slopes
+  geom_line(data=newdat, aes(y=predMean, x=HWT_end_season, color=Species), alpha =1, size = 1.2) +
   labs(y=expression(paste("Tissue ", delta^{13}, "C (\u2030)")), 
        x= "HWT (cm)") +
+  scale_fill_manual(values=c("black", "red"), name="fill") +
   scale_color_manual(breaks = c("S.fuscum", "S.magellanicum"), values = c("S.fuscum" = "black", "S.magellanicum" = "red"),
                      labels = c("S. fuscum", "S. magellanicum")) +
   scale_shape_manual(breaks = c("S.fuscum", "S.magellanicum"), values = c(1,2),
@@ -501,7 +528,7 @@ fig2 <- ggplot(dat.sub.f2,aes(HWT_end_season, iso_13C_all, group=interaction(Sit
   ylim(c(-35, -23)) + 
   theme_bw()+
   theme(legend.justification = c(0, 0), 
-        legend.position = c(0.70, 0.05),
+        legend.position = c(0.62, 0.02),
         legend.key.size = unit(2, "line"),
         legend.text = element_text(size=12, face = "italic"),
         legend.title = element_text(size=12)) +
@@ -512,11 +539,14 @@ fig2
 # to fix this
 library(grid)
 grid.ls(grid.force()) # check slots to edit 
-grid.gedit("key-[-0-9]-1-3.4-2-4-2", size = unit(4, "mm"))    
-grid.gedit("key-[-0-9]-1-3.5-2-5-2", size = unit(4, "mm"))    
+grid.gedit("key-[-0-9]-1-1.4-2-4-2", size = unit(2, "mm"))    
+grid.gedit("key-[-0-9]-1-1.5-2-5-2", size = unit(2, "mm"))    
 fig2 <- grid.grab() # save edits
-ggsave("fig2_13C.png", fig2,  dpi = 300)
-
+ggsave("fig2_13C_ci.png", fig2,  dpi = 300, height = 5, width=6, units="in")
+# save as eps
+cairo_pdf(filename = "fig2_13C_ci.eps", height = 5, width=6) 
+grid.draw(fig2)
+dev.off()
 
 # d18O analyses ####
 # First we remove the two samples without O isotopes. 
@@ -844,49 +874,82 @@ paste(fixef(fig3.mod)[1]," + ",fixef(fig3.mod)[2])
 # S.magellanicum
 paste((fixef(fig3.mod)[1] + fixef(fig3.mod)[3]), " + ", fixef(fig3.mod)[2])
 
-# Get BLUPs for plotting
-rf <- ranef(fig3.mod, condVar=TRUE)
-dotplot(rf)
-pred.df <- data.frame(aggregate(dat$bowen_18O_annual, by = list(dat$Site), mean))
-colnames(pred.df)  <- c("Site", "bowen_18O_annual")
-pred.df <- pred.df[pred.df$Site %in% rownames(rf$Site),]
+################################
+# Get BLUPs for plotting as an alternative. not shown in the paper.
+#rf <- ranef(fig3.mod, condVar=TRUE)
+#dotplot(rf)
+#pred.df <- data.frame(aggregate(dat$bowen_18O_annual, by = list(dat$Site), mean))
+#colnames(pred.df)  <- c("Site", "bowen_18O_annual")
+#pred.df <- pred.df[pred.df$Site %in% rownames(rf$Site),]
 
 # Make new data frame with BLUPs and their standard error.
-rff <- data.frame(pred.df, RF=rf$Site[,1],Var=attr(rf$Site,"postVar")[,,])
-#compute the group level regression
-rff$RFF.fusc <- with(rff,RF+fixef(fig3.mod)[1]+fixef(fig3.mod)[2]*bowen_18O_annual)
-rff$RFF.mag <- with(rff,RF+fixef(fig3.mod)[1]+fixef(fig3.mod)[2]*bowen_18O_annual+fixef(fig3.mod)[3])
-rff <- reshape(rff, varying = c("RFF.fusc", "RFF.mag"), direction = "long")
+#rff <- data.frame(pred.df, RF=rf$Site[,1],Var=attr(rf$Site,"postVar")[,,])
+# compute the group level regression
+# put NAs for species-site combination that werent sampled
+#fusc.samp <- table(dat$Site, dat$Species)[,1]>0
+#mag.samp <- table(dat$Site, dat$Species)[,2]>0
+
+#rff$RFF.fusc <- with(rff, RF+fixef(fig3.mod)[1]+fixef(fig3.mod)[2]*bowen_18O_annual)
+#rff$RFF.fusc <- ifelse(fusc.samp, rff$RFF.fusc, NA)
+#rff$RFF.mag <- with(rff,RF+fixef(fig3.mod)[1]+fixef(fig3.mod)[2]*bowen_18O_annual+fixef(fig3.mod)[3])
+#rff$RFF.mag <- ifelse(mag.samp, rff$RFF.mag, NA)
+#rff <- reshape(rff, varying = c("RFF.fusc", "RFF.mag"), direction = "long")
+################################
+
+# plot raw data with SDs
+agg.dat <- aggregate(cbind(iso_18O_all, bowen_18O_annual) ~ Site + Species, dat, FUN = function (x) c(mean(x), sd(x)))
+agg.dat <- data.frame(agg.dat[,1:2], agg.dat[,3], agg.dat[,4][,1])
+colnames(agg.dat)[3:5] <- c("iso_18O_all", "se", "bowen_18O_annual")
+
+# To get confidence interval bands
+# We have a lot of data so 2 x SE works well as 95% CIs
+mima <- aggregate(bowen_18O_annual ~ Species, data=dat, function (x) c(min(x),max(x)) )$bowen_18O_annual
+newdat <- rbind(data.frame(Species = "S.fuscum", bowen_18O_annual = seq(mima[1, 1],mima[1, 2], 0.025)),
+                data.frame(Species = "S.magellanicum", bowen_18O_annual = seq(mima[2, 1],mima[2, 2], 0.025)))
+newdat$predMean <- predict(fig3.mod, newdata=newdat, re.form=~0)
+
+mm <- model.matrix(formula('~bowen_18O_annual + Species'),newdat)
+newdat$distance <- mm %*% fixef(fig3.mod)
+newdat$pvar1 <- diag(mm %*% tcrossprod(vcov(fig3.mod),mm))
+newdat <- data.frame(
+  newdat
+  , plo = newdat$distance-2*sqrt(newdat$pvar1)
+  , phi = newdat$distance+2*sqrt(newdat$pvar1) )
+#
 
 # Plot figure 3
-# 2 x SE to get approx 95% interval
-fig3 <- ggplot(rff, aes(x=bowen_18O_annual, y=RFF, ymin=RFF-2*Var, ymax=RFF+2*Var, color = time, shape = time))+
-  geom_point(size=2) +
-  geom_abline(aes(intercept=fixef(fig3.mod)[1], slope=fixef(fig3.mod)[2]), color = 1) + geom_linerange() +
-  geom_abline(aes(intercept=fixef(fig3.mod)[1] + fixef(fig3.mod)[3], slope=fixef(fig3.mod)[2]), color = 2) + geom_linerange() +
+fig3 <- ggplot(agg.dat, aes(x=bowen_18O_annual, y=iso_18O_all, ymin=iso_18O_all-se, ymax=iso_18O_all+se, color = Species, shape = Species)) +
+  geom_point(size=2)+ geom_linerange(show.legend = FALSE) +
+  geom_ribbon(data=newdat, aes(y=plo, x=bowen_18O_annual, ymin = plo, ymax = phi, fill = Species), 
+              alpha = .15, show.legend = FALSE, linetype=0, inherit.aes = FALSE) +
+  geom_line(data=newdat, aes(y=predMean, x=bowen_18O_annual, color=Species), 
+            alpha =1, size = 1.2,inherit.aes = FALSE) +
   labs(y=expression(paste("Tissue ", delta^{18}, "O (\u2030)")), 
        x= expression(paste("Modelled precipitation ", delta^{18}, "O (\u2030)"))) +
-  scale_color_manual(name = "Species", breaks = c("fusc", "mag"), values = c("fusc" = "black", "mag" = "red"),
-                     labels = c("S.fuscum", "S. magellanicum")) +
-  scale_shape_manual(name=c("Species"), breaks = c("fusc", "mag"),values = c(1,2), labels = c("S.fuscum", "S. magellanicum")) +
+  scale_fill_manual(values=c("black", "red"), name="fill") +
+  scale_color_manual(name = "Species", breaks = c("S.fuscum", "S.magellanicum"), values = c("S.fuscum" = "black", "S.magellanicum" = "red"),
+                     labels = c("S. fuscum", "S. magellanicum")) +
+  scale_shape_manual(name=c("Species"), breaks = c("S.fuscum", "S.magellanicum"),values = c(1,2), labels = c("S. fuscum", "S. magellanicum")) +
   theme_bw()+
   theme(legend.justification = c(0, 0), 
-        legend.position = c(0.70, 0.05),
+        legend.position = c(0.65, 0.03),
         legend.key.size = unit(2, "line"),
         legend.text = element_text(size=12, face = "italic"),
         legend.title = element_text(size=12)) #+
-  #guides(colour = guide_legend(override.aes = list(size = 2)))
 
 fig3
 # legend line and point size are not equal and here is a hack
 # to fix this
 library(grid)
 grid.ls(grid.force()) # check slots to edit 
-grid.gedit("key-[-0-9]-1-1.4-2-4-2", size = unit(4, "mm"))    
-grid.gedit("key-[-0-9]-1-1.5-2-5-2", size = unit(4, "mm"))    
+grid.gedit("key-[-0-9]-1-1.4-2-4-2", size = unit(3, "mm"))    
+grid.gedit("key-[-0-9]-1-1.5-2-5-2", size = unit(3, "mm"))    
 fig3 <- grid.grab() # save edits
-ggsave("fig3_18o.png", fig3,  dpi = 300)
-
+ggsave("fig3_18o_ci_raw.png", fig3,  dpi = 300)
+# save as eps
+cairo_pdf(filename = "fig3_18o_ci_raw.eps", height = 5, width=6) 
+grid.draw(fig3)
+dev.off()
 
 # Species differences in HWT ####
 # use nlme for weights function (account for increasing variance)
@@ -903,11 +966,38 @@ detach(package:nlme)
 range(dat$elevation)
 range(dat$Patch_coord_lat)
 
-tables1 <- aggregate(cbind(Patch_coord_lat, Patch_coord_lon, elevation, samp_year) ~ Region + Site, dat, mean)
+tables1 <- aggregate(cbind(Patch_coord_lat, Patch_coord_lon, elevation, samp_year, Species) ~ Region + Site, dat, mean)
+colnames(tables1)[7] <- "species"
+tables1$species <-ifelse(tables1$species == 1, "S.fuscum",
+                         ifelse(tables1$species == 2, "S.magellanicum","S.fuscum+S.magellanicum")) 
+
 # one site had samples from two years
 tables1$samp_year <- ifelse(tables1$samp_year != 2013 & tables1$samp_year != 2014, "2013 & 2014", tables1$samp_year)
-colnames(tables1) <- c("region", "site", "latitude_wgs84", "longitude_wgs84", "elevation_masl", "sample_year") 
-write.csv(tables1, file="tables1.csv", row.names = FALSE)
+colnames(tables1) <- c("region", "site", "latitude_wgs84", "longitude_wgs84", "elevation_masl", "sample_year", "species") 
+library(gsheet)
+org <- gsheet2tbl("https://docs.google.com/spreadsheets/d/1QQQ92-xyu6Vr6TNNSd3mCX_lQTc3H2HA5f0D84rAo7k/edit?usp=sharing")
+tables1$latitude_wgs84 <- round(tables1$latitude_wgs84, 5)
+org$latitude_wgs84 <- round(org$latitude_wgs84, 5)
+
+ff <- merge(org, tables1, by = c("latitude_wgs84"),
+            sort=FALSE, all.x=TRUE)
+org$species <- ff$species
+write.csv(org, file="tables1.csv", row.names = FALSE)
+
+# Table S2 - Within-between site variation ####
+cols <- c("iso_18O_all", "iso_13C_all", "bowen_18O_annual", "avt", 
+          "evap", "precip", "ep", "prod", "HWT_end_season", "elevation")
+sumstat <- aggregate(cbind(iso_18O_all, iso_13C_all, bowen_18O_annual, avt, 
+                           evap, precip, ep, prod, HWT_end_season, elevation) ~ Species, data=dat, function (x) c(mean(x), sd(x), range(x)))
+sumstat <- do.call(data.frame, sumstat)
+
+table1a <- reshape(sumstat, varying = c(colnames(sumstat)[-1]), direction="long", timevar="var", times=cols,
+                   v.names=c("1mean", "2sd", "3min", "4max"), idvar= "Species")
+rownames(table1a)<-NULL
+table1a <- table1a[,c(2,1,3:6)]
+colnames(table1a)[3:6] <- c("mean", "sd", "min", "max")
+table1a[,3:6] <- round(table1a[,3:6], digits = 2)
+write.csv(table1a, file = "tables2.csv", row.names = FALSE)
 
 # Figure S1 - d18O pred per month ####
 # check variation in pred 18O over the year
